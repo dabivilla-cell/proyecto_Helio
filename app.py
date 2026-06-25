@@ -36,23 +36,23 @@ if "passport" not in st.session_state:
 def epistemic_router(user_input):
     u = user_input.lower()
     if "ptolomeo" in u:
-        return "Ptolomeo", "Eres Claudio Ptolomeo (año 150 d.C.). Defiendes firmemente que la Tierra es el centro inmóvil del universo. Tus argumentos son empíricos: 'si la tierra se moviera, sentiríamos el viento' y 'las estrellas no muestran paralaje'. Habla con autoridad antigua."
+        return "Ptolomeo", "Eres Claudio Ptolomeo (año 150 d.C.). Defiendes firmemente que la Tierra es el centro inmóvil del universo. Tus argumentos son empíricos: 'si la tierra se moviera, sentiríamos el viento' y 'las estrellas no muestran paralaje'. Habla con autoridad antigua, eres un científico cuidadoso y escéptico."
     elif "aristarco" in u:
-        return "Aristarco", "Eres Aristarco de Samos (siglo III a.C.). Eres un revolucionario matemático. Defiendes que el Sol es mucho más grande que la Tierra y por lo tanto la Tierra debe girar a su alrededor. Tu tono es curioso y geométrico."
+        return "Aristarco", "Eres Aristarco de Samos (siglo III a.C.). Eres un revolucionario matemático. Defiendes que el Sol es mucho más grande que la Tierra y por lo tanto la Tierra debe girar a su alrededor. Tu tono es curioso. Eres un visionario dispuesto a hacer hipótesis incluso cuando contradicen la intuición"
     else:
-        return "Helios", "Eres Helios, un mediador socrático. Tu objetivo es que el estudiante dude de lo obvio. No des respuestas directas; haz preguntas que obliguen a contrastar las opiniones de Ptolomeo y Aristarco."
+        return "Helios", "Eres Helios, un mediador socrático. Tu objetivo es que el estudiante dude de lo obvio. No des respuestas directas; haz preguntas que obliguen a contrastar las opiniones de Ptolomeo y Aristarco. Pregunta al usuario que opina y también se interesa por como llegó a esa opinión"
 
 # 4. Interfaz - Barra Lateral (Pasaporte Epistémico)
 with st.sidebar:
-    st.title("☀️ Helios System")
-    st.markdown("### Pasaporte Epistémico")
-    st.markdown("Este panel registra el recorrido cognitivo del evaluador.")
+    st.title("☀️ Helios está atento")
+    st.markdown("### Progreso del Viajero Epistémico")
+    st.markdown("En este panel se registra tu recorrido cognitivo.")
     
     p = st.session_state.passport
     st.markdown(f"""
     <div class="passport-card">
-        <p class="{'stamp-on' if p['Ptolomeo'] else 'stamp-off'}">{'●' if p['Ptolomeo'] else '○'} Perspectiva Geocéntrica</p>
-        <p class="{'stamp-on' if p['Aristarco'] else 'stamp-off'}">{'●' if p['Aristarco'] else '○'} Perspectiva Heliocéntrica</p>
+        <p class="{'stamp-on' if p['Ptolomeo'] else 'stamp-off'}">{'●' if p['Ptolomeo'] else '○'} Ptolomeo/Perspectiva Geocéntrica</p>
+        <p class="{'stamp-on' if p['Aristarco'] else 'stamp-off'}">{'●' if p['Aristarco'] else '○'} Aristarco/Perspectiva Heliocéntrica</p>
         <hr>
         <p style='font-size: 0.8em;'>Giros de Pensamiento: {p['Shifts']}</p>
     </div>
@@ -66,7 +66,7 @@ with st.sidebar:
 
 # 5. Interfaz - Chat Principal
 st.title("Desmontando la Carreta de Helios")
-st.caption("Arquitectura Multi-Agente para el Giro del Pensamiento Científico")
+st.caption("Capítulo 1: El debate comienza")
 
 # Mostrar historial
 for m in st.session_state.messages:
