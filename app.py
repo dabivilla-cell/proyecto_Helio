@@ -1,95 +1,63 @@
 import streamlit as st
 from groq import Groq
+import sys
 
-# 1. Configuración de página e identidad visual
-st.set_page_config(page_title="Helios System", page_icon="☀️", layout="wide")
+st.set_page_config(page_title="Helios Demo", page_icon="☀️")
 
-# 2. Verificación de Seguridad de la API Key
-if "GROQ_API_KEY" not in st.secrets:
-    st.error("⚠️ No se encontró la API Key en los Secrets de Streamlit.")
+# --- DEBUG INFO (Solo para nosotros) ---
+with st.expander("🔍 Información de Sistema para Diagnóstico"):
+    st.write(f"Versión de Python: {sys.version}")
+    st.write(f"API Key detectada: {'✅ SI' if 'GROQ_API_KEY' in st.secrets else '❌ NO'}")
+
+# --- CLIENTE ---
+if 'GROQ_API_KEY' in st.secrets:
+    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+else:
+    st.error("Falta la API Key en los Secrets")
     st.stop()
 
-# 3. Inicialización del cliente
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-# 4. Estado de la sesión
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "passport" not in st.session_state:
-    st.session_state.passport = {"Ptolomeo": False, "Aristarco": False, "Cambio": 0}
 
-# --- LÓGICA DEL ROUTER ---
-def epistemic_router(user_input):
-    u = user_input.lower()
-    if "ptolomeo" in u:
-        return "Ptolomeo", "Eres Claudio Ptolomeo. Defiendes el sistema geocéntrico. La Tierra es el centro inmóvil. Ignora descubrimientos después del año 150 d.C."
-    elif "aristarco" in u:
-        return "Aristarco", "Eres Aristarco de Samos. Defiendes el sistema heliocéntrico. El Sol es mucho más grande que la Tierra y debe estar en el centro."
-    else:
-        return "Helios", "Eres Helios, el mediador socrático. Haz preguntas para que el estudiante reflexione sobre la evidencia."
+# --- INTERFAZ ---
+st.title("☀️ Helios Multi-Agent System")
 
-# --- UI SIDEBAR ---
-with st.sidebar:
-    st.title("☀️ Helios")
-    st.subheader("Epistemic Passport")
-    p = st.session_state.passport
-    st.write(f"{'✅' if p['Ptolomeo'] else '⭕'} Ptolomeo")
-    st.write(f"{'✅' if p['Aristarco'] else '⭕'} Aristarco")
-    st.metric("Cambios de Paradigma", p["Cambio"])
-    if st.button("Reiniciar Sistema"):
-        st.session_state.messages = []
-        st.session_state.passport = {"Ptolomeo": False, "Aristarco": False, "Cambio": 0}
-        st.rerun()
-
-# --- CHAT INTERFACE ---
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-if prompt := st.chat_input("Dile 'Hola' a Ptolomeo o Aristarco..."):
+if prompt := st.chat_input("Escribe 'Hola'"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    agent_name, sys_prompt = epistemic_router(prompt)
-    
-    # Marcado en pasaporte
-    if agent_name in st.session_state.passport:
-        st.session_state.passport[agent_name] = True
-
-    with st.chat_message("assistant", avatar="☀️"):
-        resp_placeholder = st.empty()
+    with st.chat_message("assistant"):
+        placeholder = st.empty()
         full_response = ""
         
-        # Lista de modelos a intentar (en orden de robustez)
-        models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
-        
-        success = False
-        for model_id in models_to_try:
-            if success: break
-            try:
-                # Limpieza estricta de mensajes para la API
-                api_messages = [{"role": "system", "content": sys_prompt}]
-                for m in st.session_state.messages[-6:]: # Solo últimos 6 para evitar errores de contexto
-                    api_messages.append({"role": m["role"], "content": m["content"]})
+        try:
+            # USAMOS EL MODELO MÁS PEQUEÑO Y ESTABLE PARA PROBAR
+            completion = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[
+                    {"role": "system", "content": "Eres un tutor socrático."},
+                    {"role": "user", "content": prompt}
+                ],
+                stream=False # Desactivamos el stream para la prueba inicial de error
+            )
+            
+            full_response = completion.choices[0].message.content
+            placeholder.markdown(full_response)
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-                stream = client.chat.completions.create(
-                    model=model_id,
-                    messages=api_messages,
-                    stream=True,
-                )
-                for chunk in stream:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        full_response += content
-                        resp_placeholder.markdown(full_response + "▌")
-                success = True
-            except Exception as e:
-                continue # Si falla un modelo, intenta el siguiente
-        
-        if success:
-            final_text = f"**[{agent_name}]:** {full_response}"
-            resp_placeholder.markdown(final_text)
-            st.session_state.messages.append({"role": "assistant", "content": final_text})
-        else:
-            st.error("Lo siento, los motores de Helios están saturados. Intenta de nuevo en un minuto.")
+        except Exception as e:
+            # AQUÍ CAPTURAMOS EL ERROR REAL
+            error_message = str(e)
+            st.error(f"Error detectado: {error_message}")
+            
+            if "api_key" in error_message.lower():
+                st.info("💡 Sugerencia: Revisa que la Key en Secrets no tenga comillas internas o caracteres invisibles.")
+            elif "model_not_found" in error_message.lower():
+                st.info("💡 Sugerencia: El modelo seleccionado no está disponible en tu región o cuenta.")
+            else:
+                st.info("💡 Sugerencia: El error 'BadRequest' con Python 3.14 indica que la librería falló al enviar los datos. El archivo runtime.txt debería corregirlo.")
