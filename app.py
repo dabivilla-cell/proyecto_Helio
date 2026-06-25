@@ -2,18 +2,67 @@ import streamlit as st
 import html
 import os
 import math
+import json
+import threading
 from groq import Groq
 from PIL import Image, ImageDraw, ImageFont
- 
+
+# ──────────────────────────────────────────────
+# MICRO-EVALUADOR DE GIROS EPISTÉMICOS
+# ──────────────────────────────────────────────
+EVALUADOR_PROMPT = """
+Eres un evaluador pedagógico. Analiza el último mensaje del estudiante
+en el contexto de la conversación y determina si muestra un giro epistémico genuino.
+
+Un giro ES genuino si el estudiante:
+- Puede argumentar una perspectiva contraria a la suya en sus propias palabras
+  (no solo citarla: "Ptolomeo diría X porque Y")
+- Expresa duda razonada sobre algo que antes daba por seguro, con argumento
+- Compara activamente las dos perspectivas mostrando que entendió ambas
+- Formula una pregunta que solo puede surgir de haber comprendido una posición
+
+Un giro NO es genuino si:
+- Solo repite información que el personaje acaba de decir
+- Expresa cambio emocional sin argumento ("ah, ahora creo que Aristarco tiene razón")
+- Usa palabras de contraste ("pero", "entonces") sin contenido reflexivo real
+
+Responde SOLO con JSON: {"giro": true} o {"giro": false}
+"""
+
+def evaluar_giro_thread(client, recent_messages, result_container):
+    """Función que corre en un hilo paralelo para evaluar el giro epistémico."""
+    try:
+        response = client.chat.completions.create(
+            # Usamos un modelo rápido y barato para esta micro-tarea
+            model="llama-3.1-8b-instant", 
+            messages=[
+                {"role": "system", "content": EVALUADOR_PROMPT},
+                *recent_messages
+            ],
+            max_tokens=20,
+            temperature=0.0,
+        )
+        text = response.choices[0].message.content.strip()
+        
+        # Limpieza por si el modelo devuelve markdown (```json ... ```)
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+            
+        data = json.loads(text)
+        result_container["giro"] = data.get("giro", False)
+    except Exception as e:
+        print(f"Error en microevaluador paralelo: {e}")
+        result_container["giro"] = False
+
 # 1. Configuración visual y de página
 st.set_page_config(page_title="Helios System — Piloto", page_icon="☀️", layout="wide")
- 
+
 # ──────────────────────────────────────────────
 # GENERACIÓN DE AVATARES PERSONALIZADOS CON PIL
 # ──────────────────────────────────────────────
 AVATAR_DIR = ".avatars"
 os.makedirs(AVATAR_DIR, exist_ok=True)
- 
+
 def _font(size):
     for name in ["arial.ttf", "DejaVuSans-Bold.ttf", "LiberationSans-Bold.ttf"]:
         try:
@@ -21,7 +70,7 @@ def _font(size):
         except Exception:
             continue
     return ImageFont.load_default()
- 
+
 def _avatar_ptolomeo(path):
     """🌍 Tierra en el centro — geocéntrico, tonos dorados."""
     s = 200
@@ -32,15 +81,13 @@ def _avatar_ptolomeo(path):
     cx, cy = s // 2, s // 2
     for r in (32, 48, 64):
         d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(201, 162, 39, 160), width=1)
-    # Tierra en el centro
     d.ellipse([cx - 13, cy - 13, cx + 13, cy + 13], fill=(100, 180, 255, 255))
-    # Planetas en órbitas
     for ang, r in [(30, 32), (160, 48), (280, 64)]:
         rad = math.radians(ang)
         x, y = cx + r * math.cos(rad), cy + r * math.sin(rad)
         d.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(255, 230, 150, 255))
     img.save(path)
- 
+
 def _avatar_aristarco(path):
     """☀️ Sol en el centro — heliocéntrico, tonos celestes."""
     s = 200
@@ -49,20 +96,17 @@ def _avatar_aristarco(path):
     d.ellipse([0, 0, s, s], fill=(139, 233, 253, 255))
     d.ellipse([8, 8, s - 8, s - 8], fill=(8, 25, 40, 255))
     cx, cy = s // 2, s // 2
-    # Sol
     d.ellipse([cx - 16, cy - 16, cx + 16, cy + 16], fill=(255, 220, 100, 255))
     for ang in range(0, 360, 40):
         rad = math.radians(ang)
         x1, y1 = cx + 22 * math.cos(rad), cy + 22 * math.sin(rad)
         x2, y2 = cx + 34 * math.cos(rad), cy + 34 * math.sin(rad)
         d.line([x1, y1, x2, y2], fill=(255, 220, 100, 255), width=3)
-    # Órbita terrestre
     d.ellipse([cx - 56, cy - 56, cx + 56, cy + 56], outline=(139, 233, 253, 130), width=1)
-    # Tierra
     ex, ey = cx + 56, cy
     d.ellipse([ex - 7, ey - 7, ex + 7, ey + 7], fill=(100, 180, 255, 255))
     img.save(path)
- 
+
 def _avatar_helios(path):
     """👁️ Mediador solar — ojo omnisciente, tonos amarillos."""
     s = 200
@@ -71,18 +115,16 @@ def _avatar_helios(path):
     d.ellipse([0, 0, s, s], fill=(241, 250, 140, 255))
     d.ellipse([8, 8, s - 8, s - 8], fill=(40, 35, 10, 255))
     cx, cy = s // 2, s // 2
-    # Ojo
     d.ellipse([cx - 38, cy - 22, cx + 38, cy + 22], fill=(241, 250, 140, 255))
     d.ellipse([cx - 14, cy - 14, cx + 14, cy + 14], fill=(40, 35, 10, 255))
     d.ellipse([cx - 7, cy - 7, cx + 7, cy + 7], fill=(255, 200, 50, 255))
-    # Rayos solares
     for ang in range(0, 360, 30):
         rad = math.radians(ang)
         x1, y1 = cx + 48 * math.cos(rad), cy + 32 * math.sin(rad)
         x2, y2 = cx + 60 * math.cos(rad), cy + 42 * math.sin(rad)
         d.line([x1, y1, x2, y2], fill=(241, 250, 140, 200), width=2)
     img.save(path)
- 
+
 def _avatar_user(path):
     """🧑 Viajero — silueta, tonos rosados."""
     s = 200
@@ -91,13 +133,10 @@ def _avatar_user(path):
     d.ellipse([0, 0, s, s], fill=(255, 121, 198, 255))
     d.ellipse([8, 8, s - 8, s - 8], fill=(30, 30, 46, 255))
     cx, cy = s // 2, s // 2
-    # Cabeza
     d.ellipse([cx - 20, cy - 35, cx + 20, cy + 5], fill=(255, 121, 198, 255))
-    # Cuerpo
     d.pieslice([cx - 35, cy - 5, cx + 35, cy + 75], 180, 360, fill=(255, 121, 198, 255))
     img.save(path)
- 
-# Generar o cargar avatares (con fallback a emoji)
+
 _AVATAR_CREATORS = {
     "Ptolomeo": ("ptolomeo.png", _avatar_ptolomeo),
     "Aristarco": ("aristarco.png", _avatar_aristarco),
@@ -105,7 +144,7 @@ _AVATAR_CREATORS = {
     "user": ("user.png", _avatar_user),
 }
 _EMOJI_FALLBACK = {"Ptolomeo": "🌍", "Aristarco": "🌟", "Helios": "🏛️", "user": "🧭"}
- 
+
 AVATARS = {}
 for _name, (_fname, _creator) in _AVATAR_CREATORS.items():
     _path = os.path.join(AVATAR_DIR, _fname)
@@ -115,109 +154,69 @@ for _name, (_fname, _creator) in _AVATAR_CREATORS.items():
         AVATARS[_name] = _path
     except Exception:
         AVATARS[_name] = _EMOJI_FALLBACK[_name]
- 
-# Paleta de colores por personaje
+
 COLORS = {
-    "Ptolomeo": "#ffb86c",   # Ámbar dorado
-    "Aristarco": "#8be9fd",  # Cian celeste
-    "Helios": "#f1fa8c",     # Amarillo solar
-    "user": "#e6e6e6",       # Blanco suave
+    "Ptolomeo": "#ffb86c",
+    "Aristarco": "#8be9fd",
+    "Helios": "#f1fa8c",
+    "user": "#e6e6e6",
 }
- 
+
 # ──────────────────────────────────────────────
 # ESTILOS CSS PERSONALIZADOS
 # ──────────────────────────────────────────────
 st.markdown("""
 <style>
 .stChatFloatingInputContainer { background-color: rgba(0,0,0,0); }
- 
-.stApp {
-    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1a2e 100%);
-}
- 
-/* —— Pasaporte Epistémico —— */
+.stApp { background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1a1a2e 100%); }
 .passport-card {
     background: linear-gradient(145deg, #1e1e2e, #2a2a40);
-    border: 1px solid #44475a;
-    border-radius: 14px;
-    padding: 22px;
-    color: white;
-    box-shadow: 0 4px 18px rgba(0,0,0,0.5);
+    border: 1px solid #44475a; border-radius: 14px; padding: 22px;
+    color: white; box-shadow: 0 4px 18px rgba(0,0,0,0.5);
 }
 .stamp-on  { color: #50fa7b; font-weight: bold; font-size: 1.05em; }
 .stamp-off { color: #6272a4; font-size: 1.05em; }
- 
-/* —— Título principal: blanco sólido, siempre visible —— */
 .main-title-text {
-    color: #ffffff;
-    font-weight: 800;
-    font-size: 2.6em;
-    margin-bottom: 0.1em;
+    color: #ffffff; font-weight: 800; font-size: 2.6em; margin-bottom: 0.1em;
     text-shadow: 0 2px 16px rgba(255,184,108,0.25);
 }
- 
-/* —— Subtítulo del Capítulo —— */
 .chapter-subtitle {
-    font-size: 1.6em !important;
-    color: #f1fa8c;
-    font-weight: 600;
-    font-style: italic;
-    letter-spacing: 0.5px;
-    text-shadow: 0 0 12px rgba(241,250,140,0.25);
-    margin-top: 0.2em;
-    margin-bottom: 0.5em;
+    font-size: 1.6em !important; color: #f1fa8c; font-weight: 600;
+    font-style: italic; letter-spacing: 0.5px;
+    text-shadow: 0 0 12px rgba(241,250,140,0.25); margin-top: 0.2em; margin-bottom: 0.5em;
 }
- 
-/* —— Título del sidebar: naranja intenso, visible sobre fondo claro —— */
-.sidebar-glow {
-    color: #d4580a;
-    font-weight: 800;
-    font-size: 1.25em;
-}
- 
-/* —— Caja de bienvenida —— */
+.sidebar-glow { color: #d4580a; font-weight: 800; font-size: 1.25em; }
 .welcome-card {
-    background: linear-gradient(145deg, #1e1e2e, #2a2a40);
-    padding: 20px 24px;
-    border-radius: 14px;
-    border-left: 4px solid #f1fa8c;
-    margin: 1em 0;
+    background: linear-gradient(145deg, #1e1e2e, #2a2a40); padding: 20px 24px;
+    border-radius: 14px; border-left: 4px solid #f1fa8c; margin: 1em 0;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
- 
-/* —— Avatares un poco más grandes —— */
 [data-testid="stChatMessageAvatar"] { font-size: 1.6rem; }
- 
-/* —— Input del chat más vistoso —— */
 .stChatInput textarea {
-    background-color: rgba(30,30,46,0.9) !important;
-    border: 1px solid #44475a !important;
-    border-radius: 12px !important;
-    color: white !important;
+    background-color: rgba(30,30,46,0.9) !important; border: 1px solid #44475a !important;
+    border-radius: 12px !important; color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
- 
+
 # ──────────────────────────────────────────────
 # 2. INICIALIZACIÓN DE API Y ESTADO
 # ──────────────────────────────────────────────
 if "GROQ_API_KEY" not in st.secrets:
     st.error("Falta la API Key en los Secrets de Streamlit.")
     st.stop()
- 
+
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
- 
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "passport" not in st.session_state:
     st.session_state.passport = {"Ptolomeo": False, "Aristarco": False, "Shifts": 0}
- 
+
 # ──────────────────────────────────────────────
 # 3. CONTEXTO DEL PASAPORTE PARA LOS PERSONAJES
 # ──────────────────────────────────────────────
 def build_context_note(passport: dict) -> str:
-    """Genera una nota de contexto sobre el recorrido del estudiante
-    para incluir al final del system prompt de cada personaje."""
     visited = [k for k, v in passport.items() if v and k != "Shifts"]
     if not visited:
         return "El estudiante acaba de llegar. Es su primer intercambio en este webdoc."
@@ -226,15 +225,14 @@ def build_context_note(passport: dict) -> str:
         f"Realizó {passport['Shifts']} giros de pensamiento. "
         "Podés hacer referencia a lo que ya exploró para crear tensión genuina entre perspectivas."
     )
- 
+
 # ──────────────────────────────────────────────
 # 4. LÓGICA DEL EPISTEMIC ROUTER (PROMPTS MEJORADOS)
 # ──────────────────────────────────────────────
 def epistemic_router(user_input: str, passport: dict):
-    """Devuelve (nombre_agente, system_prompt_completo) según la entrada del usuario."""
     u = user_input.lower()
     context_note = build_context_note(passport)
- 
+
     if "ptolomeo" in u:
         agent = "Ptolomeo"
         sys_prompt = (
@@ -260,7 +258,7 @@ def epistemic_router(user_input: str, passport: dict):
             "es elegante sin ser demostrable. No te rindas fácilmente, pero sí ante argumentos concretos. "
             "Tu objetivo no es ganar: es que el estudiante entienda por qué tu visión tenía sentido en su momento."
         )
- 
+
     elif "aristarco" in u:
         agent = "Aristarco"
         sys_prompt = (
@@ -275,7 +273,7 @@ def epistemic_router(user_input: str, passport: dict):
             "1) Medí el ángulo entre el Sol y la Luna en cuarto creciente: el Sol está incomparablemente más lejos "
             "y por lo tanto es enormemente más grande que la Tierra. ¿Por qué el objeto más grande orbitaría al más pequeño? "
             "2) Si la Tierra gira sobre su eje en 24 horas, todo el movimiento aparente del cielo se explica sin "
-            "necesitar que el cosmos entero ruede alrededor nuestro cada día. "
+            "necesitar que el cosmos entero rueda alrededor nuestro cada día. "
             "3) Si no vemos paralaje estelar, es porque las estrellas están a distancias que nadie todavía imagina. "
             "La ausencia de evidencia no es evidencia de ausencia. "
             "\n\n"
@@ -289,7 +287,7 @@ def epistemic_router(user_input: str, passport: dict):
             "Si el estudiante menciona a Ptolomeo, respeta su posición: 'Su sistema funciona para predecir. "
             "El mío intenta explicar. Son preguntas distintas.' Nunca lo ridiculices."
         )
- 
+
     else:
         agent = "Helios"
         sys_prompt = (
@@ -330,11 +328,10 @@ def epistemic_router(user_input: str, passport: dict):
             "TONO: Cálido, intrigante, nunca condescendiente. Hablas como alguien que disfruta ver a otro pensar. "
             "Puedes usar metáforas astronómicas con moderación."
         )
- 
-    # Inyectar contexto del pasaporte al final del system prompt
+
     full_prompt = sys_prompt + "\n\nCONTEXTO DEL RECORRIDO: " + context_note
     return agent, full_prompt
- 
+
 # ──────────────────────────────────────────────
 # 5. BARRA LATERAL — PASAPORTE EPISTÉMICO
 # ──────────────────────────────────────────────
@@ -342,7 +339,7 @@ with st.sidebar:
     st.markdown("<h1 class='sidebar-glow'>☀️ Helios está atento</h1>", unsafe_allow_html=True)
     st.markdown("### 🧭 Progreso del Viajero Epistémico")
     st.markdown("En este panel se registra tu recorrido cognitivo.")
- 
+
     p = st.session_state.passport
     st.markdown(f"""
     <div class="passport-card">
@@ -358,13 +355,13 @@ with st.sidebar:
         </p>
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.write("---")
     if st.button("🔄 Reiniciar Sesión", use_container_width=True):
         st.session_state.messages = []
         st.session_state.passport = {"Ptolomeo": False, "Aristarco": False, "Shifts": 0}
         st.rerun()
- 
+
 # ──────────────────────────────────────────────
 # 6. CHAT PRINCIPAL
 # ──────────────────────────────────────────────
@@ -372,8 +369,7 @@ st.markdown("<h1 class='main-title-text'>Desmontando la Carreta de Helios</h1>",
             unsafe_allow_html=True)
 st.markdown("<p class='chapter-subtitle'>📜 Capítulo 1: El debate comienza</p>",
             unsafe_allow_html=True)
- 
-# Mensaje de bienvenida si no hay historial
+
 if not st.session_state.messages:
     st.markdown("""
     <div class="welcome-card">
@@ -388,8 +384,7 @@ if not st.session_state.messages:
         </p>
     </div>
     """, unsafe_allow_html=True)
- 
-# Mostrar historial con colores y avatares por personaje
+
 for m in st.session_state.messages:
     if m["role"] == "user":
         with st.chat_message("user", avatar=AVATARS["user"]):
@@ -407,10 +402,8 @@ for m in st.session_state.messages:
                 f'<b>[{agent}]:</b> {html.escape(m["content"])}</div>',
                 unsafe_allow_html=True,
             )
- 
-# Entrada de usuario
+
 if prompt := st.chat_input("Pregúntale algo a Ptolomeo o Aristarco..."):
-    # Guardar y mostrar mensaje del usuario
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user", avatar=AVATARS["user"]):
         st.markdown(
@@ -418,22 +411,32 @@ if prompt := st.chat_input("Pregúntale algo a Ptolomeo o Aristarco..."):
             f'line-height:1.5;">{html.escape(prompt)}</div>',
             unsafe_allow_html=True,
         )
- 
-    # Determinar agente y obtener prompt con contexto de pasaporte inyectado
+
     agent_name, sys_prompt = epistemic_router(prompt, st.session_state.passport)
- 
-    # Actualizar Pasaporte
+
+    # Actualizar Pasaporte (sellos de personaje)
     if agent_name in st.session_state.passport:
         st.session_state.passport[agent_name] = True
-    if any(w in prompt.lower() for w in ["pero", "por qué", "duda", "entonces", "cambio"]):
-        st.session_state.passport["Shifts"] += 1
- 
-    # Respuesta con streaming
+
+    # --- INICIO MICRO-EVALUADOR PARALELO ---
+    # Preparamos el historial reciente (últimos 4 mensajes) para darle contexto al evaluador
+    eval_history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[-4:]]
+    eval_result = {"giro": False}
+    
+    # Lanzamos el hilo en segundo plano
+    eval_thread = threading.Thread(
+        target=evaluar_giro_thread, 
+        args=(client, eval_history, eval_result)
+    )
+    eval_thread.start()
+    # --- FIN INICIO MICRO-EVALUADOR ---
+
+    # Respuesta con streaming (hilo principal)
     with st.chat_message("assistant", avatar=AVATARS.get(agent_name, AVATARS["Helios"])):
         color = COLORS.get(agent_name, COLORS["Helios"])
         full_response = ""
         placeholder = st.empty()
- 
+
         try:
             stream = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -444,7 +447,7 @@ if prompt := st.chat_input("Pregúntale algo a Ptolomeo o Aristarco..."):
                 ],
                 stream=True,
             )
- 
+
             for chunk in stream:
                 if chunk.choices[0].delta.content:
                     full_response += chunk.choices[0].delta.content
@@ -454,7 +457,7 @@ if prompt := st.chat_input("Pregúntale algo a Ptolomeo o Aristarco..."):
                         f'{html.escape(full_response)}▌</div>',
                         unsafe_allow_html=True,
                     )
- 
+
             placeholder.markdown(
                 f'<div style="color:{color}; white-space:pre-wrap; line-height:1.5;">'
                 f'<b>[{agent_name}]:</b> {html.escape(full_response)}</div>',
@@ -463,8 +466,17 @@ if prompt := st.chat_input("Pregúntale algo a Ptolomeo o Aristarco..."):
             st.session_state.messages.append(
                 {"role": "assistant", "content": full_response, "agent": agent_name}
             )
- 
+
         except Exception as e:
             st.error(f"Error de conexión: {str(e)}")
             st.info("Intentando reconectar con motor de reserva...")
 
+        # --- RECOLECCIÓN DEL MICRO-EVALUADOR ---
+        # El stream terminó, esperamos el resultado del evaluador (suele terminar antes, pero hacemos join por seguridad)
+        eval_thread.join()
+        
+        if eval_result["giro"]:
+            st.session_state.passport["Shifts"] += 1
+            # Notificación visual no intrusiva para el estudiante
+            st.toast("🔄 ¡Giro de pensamiento detectado! Tu perspectiva se está expandiendo.", icon="✨")
+        # --- FIN RECOLECCIÓN ---
